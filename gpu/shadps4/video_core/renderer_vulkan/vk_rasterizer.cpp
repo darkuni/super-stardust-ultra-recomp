@@ -1413,6 +1413,22 @@ void Rasterizer::DrawIndirectRecord(const GraphicsPipeline* pipeline, bool is_in
             }
         }
     });
+    if (FrameCapture::Active()) {
+        // The arguments as the guest's memory holds them now (the GPU may write them later).
+        const auto* vs = pipeline->GetStages()[u32(Shader::SwStage::Vertex)];
+        const auto* ps = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
+        const auto* words = reinterpret_cast<const u32*>(indirect.args);
+        const u32 count = count_address ? *reinterpret_cast<const u32*>(count_address) : max_count;
+        FrameCapture::Draw(vs ? vs->pgm_hash : 0, ps ? ps->pgm_hash : 0, words[0], words[1]);
+        char note[256];
+        std::snprintf(note, sizeof(note),
+                      "\n  indirect %s ps %08x: args %#llx max %u count@%#llx=%u | %u %u %u %u %u",
+                      is_indexed ? "indexed" : "draw", u32(ps ? ps->pgm_hash : 0),
+                      (unsigned long long)indirect.args, max_count,
+                      (unsigned long long)count_address, count, words[0], words[1], words[2],
+                      words[3], is_indexed ? words[4] : 0);
+        FrameCapture::Note(note);
+    }
     DebugState.IncDrawCall();
 
     ResetBindings(false);
