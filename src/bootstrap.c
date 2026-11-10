@@ -550,10 +550,13 @@ int bootstrap(int *argc, char ***argv) {
     char path[4200];
     in_base(path, sizeof(path), GAME_PROGRAM ".ini");
     set_env("GOW3_CONFIG", path, 0);
+    /* Test builds: F11 writes a frame capture (every pass, its shaders and targets) to
+     * user/captures. */
+    set_env("GOW3_FRAME_CAPTURE_KEY", "1", 0);
     /* stereo_eye=left|right in the settings file: which image of the game's left/right display
-     * pair is shown (test build: right). */
+     * pair is shown. */
     {
-        const char *eye = "right";
+        const char *eye = "left";
         FILE *ini = boot_fopen(path, "r");
         char line[256];
         static char value[16];
