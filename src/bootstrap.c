@@ -559,8 +559,10 @@ int bootstrap(int *argc, char ***argv) {
         static char value[16];
         while (ini && fgets(line, sizeof(line), ini)) {
             if (!strncmp(line, "stereo_eye=", 11)) {
-                snprintf(value, sizeof(value), "%s", line + 11);
-                value[strcspn(value, "\r\n ")] = 0;
+                size_t n = strcspn(line + 11, "\r\n ");
+                if (n >= sizeof(value)) n = sizeof(value) - 1;
+                memcpy(value, line + 11, n);
+                value[n] = 0;
                 eye = value;
             }
         }
