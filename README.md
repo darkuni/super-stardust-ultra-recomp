@@ -40,6 +40,8 @@ Proton) under Properties > Compatibility.
 | Title ID | Region | Version | State |
 |---|---|---|---|
 | CUSA05951 | EU | Super Stardust Ultra VR 01.00 (the "1_03" scene release) | Development target |
+| CUSA06024 | US | Super Stardust Ultra VR | Accepted, not tested |
+| CUSA00952 / CUSA01560 | EU / US | Super Stardust Ultra (2D release) | Accepted, not tested |
 
 ## Building
 
