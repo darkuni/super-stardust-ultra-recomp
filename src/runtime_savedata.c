@@ -379,6 +379,60 @@ static int32_t memory_io(void *buffer, uint64_t size, int64_t offset, int write)
     pthread_mutex_unlock(&lock);
     return r;
 }
+/* SaveDataMemory2 (SDK 3.5+, Super Stardust Ultra): the same blob, set up and accessed through
+ * parameter structures (slot 0 only). */
+typedef struct { uint32_t option; int32_t user; uint64_t memory_size, icon_size; const Param *param; const void *icon;
+                 uint32_t slot; uint8_t reserved[20]; } MemorySetup2;
+typedef struct { uint64_t existed; uint8_t reserved[16]; } MemorySetupResult;
+typedef struct { void *buffer; uint64_t size; int64_t offset; uint8_t reserved[40]; } MemoryData;
+typedef struct { int32_t user; uint8_t pad[4]; MemoryData *data; Param *param; void *icon; uint32_t slot;
+                 uint8_t reserved[28]; } MemoryGet2;
+typedef struct { int32_t user; uint8_t pad[4]; const MemoryData *data; const Param *param; const void *icon;
+                 uint32_t count; uint32_t slot; uint8_t reserved[24]; } MemorySet2;
+static ABI int32_t memory_setup(int32_t user, uint64_t size, const Param *param);
+static ABI int32_t memory_setup2(const MemorySetup2 *setup, MemorySetupResult *result) {
+    if (!setup) return ERR_PARAMETER;
+    uint64_t existed=0;
+    char base[600], path[720];
+    root(setup->user,NULL,base,sizeof(base));
+    snprintf(path,sizeof(path),"%s.memory/memory.dat",base);
+    FILE *f=fopen(path,"rb");
+    if (f) { if (!fseek(f,0,SEEK_END)) { long n=ftell(f); if (n>0) existed=(uint64_t)n; } fclose(f); }
+    int32_t r=memory_setup(setup->user,setup->memory_size,existed ? NULL : setup->param);
+    if (!r && result) { memset(result,0,sizeof(*result)); result->existed=existed; }
+    return r;
+}
+static ABI int32_t memory_get2(MemoryGet2 *get) {
+    if (!get) return ERR_PARAMETER;
+    if (get->data) {
+        int32_t r=memory_io(get->data->buffer,get->data->size,get->data->offset,0);
+        if (r) return r;
+    }
+    if (get->param) {
+        char base[600], dir[640];
+        root(get->user,NULL,base,sizeof(base));
+        snprintf(dir,sizeof(dir),"%s.memory",base);
+        if (read_param(dir,get->param)) memset(get->param,0,sizeof(*get->param));
+    }
+    return 0;
+}
+static ABI int32_t memory_set2(const MemorySet2 *set) {
+    if (!set) return ERR_PARAMETER;
+    for (uint32_t i=0; set->data && i<(set->count ? set->count : 1); ++i) {
+        int32_t r=memory_io(set->data[i].buffer,set->data[i].size,set->data[i].offset,1);
+        if (r) return r;
+    }
+    if (set->param) {
+        char base[600], dir[640];
+        root(set->user,NULL,base,sizeof(base));
+        snprintf(dir,sizeof(dir),"%s.memory",base);
+        pthread_mutex_lock(&lock);
+        int failed=write_param(dir,set->param);
+        pthread_mutex_unlock(&lock);
+        if (failed) return ERR_INTERNAL;
+    }
+    return 0;
+}
 static ABI int32_t memory_get(int32_t user, void *buffer, uint64_t size, int64_t offset) { (void)user; return memory_io(buffer,size,offset,0); }
 static ABI int32_t memory_set(int32_t user, void *buffer, uint64_t size, int64_t offset) { (void)user; return memory_io(buffer,size,offset,1); }
 
@@ -394,6 +448,8 @@ static const RuntimeExport exports[]={
     {"sceSaveDataDirNameSearch",save_search},
     {"sceSaveDataSetupSaveDataMemory",memory_setup}, {"sceSaveDataGetSaveDataMemory",memory_get},
     {"sceSaveDataSetSaveDataMemory",memory_set},
+    {"sceSaveDataSetupSaveDataMemory2",memory_setup2}, {"sceSaveDataGetSaveDataMemory2",memory_get2},
+    {"sceSaveDataSetSaveDataMemory2",memory_set2},
 };
 uintptr_t runtime_savedata_resolve(const char *name) { return RUNTIME_LOOKUP(exports,name); }
 void runtime_savedata_report(void) { printf("Runtime: save data mounts=%zu, memory writes=%zu\n",mounts_done,memory_writes); }

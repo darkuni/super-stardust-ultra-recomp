@@ -1,4 +1,4 @@
-/* resogun / resogun.exe started by itself (double-click, Steam): find the game next to the
+/* The program (stardust / stardust.exe) started by itself (double-click, Steam): find the game next to the
  * program, unpack its PKGs and prepare it on the first start, then hand the loader the arguments
  * run.py used to build. Replaces the Python launcher of the ports this project comes from. */
 #pragma once

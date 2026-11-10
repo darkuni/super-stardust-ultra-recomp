@@ -1,14 +1,15 @@
 /* See bootstrap.h. Layout next to the program (the folder it is started from):
- *   RESOGUN ... Game.pkg, RESOGUN ... Update.pkg   your fake PKGs (or a ready game folder)
+ *   *.pkg        your fake PKGs of the game and its updates (or a ready game folder)
  *   game/        the unpacked game (made on the first start; the PKGs can be deleted after)
  *   out/         the prepared executable (made on the first start, again after a game change)
  *   user/        saves, shader caches, last_run.log
- *   resogun.ini  settings (in-game menu: Insert, or R3+L2 on a controller) */
+ *   <program>.ini settings (in-game menu: Insert, or R3+L2 on a controller) */
 #define _FILE_OFFSET_BITS 64
 #ifndef _WIN32
 #define _GNU_SOURCE
 #endif
 #include "bootstrap.h"
+#include "game.h"
 #include "boot_pkg.h"
 #include "boot_prepare.h"
 #include "boot_util.h"
@@ -27,10 +28,10 @@
 #include <unistd.h>
 #endif
 
-#define TITLE "RESOGUN"
+#define TITLE GAME_TITLE
 /* Bump when the prepared files change format: the next start prepares again. */
-#define PREPARE_VERSION "resogun-prepare-1"
-static const char *const MODULES[] = {"libc.prx", "libSceFios2.prx", NULL};
+#define PREPARE_VERSION GAME_PROGRAM "-prepare-1"
+static const char *const MODULES[] = GAME_MODULES;
 
 static char exe_path[4096], base_dir[4096], game_dir[4096], out_dir[4096], user_dir[4096];
 
@@ -95,7 +96,7 @@ static int reopen_log(const char *path) {
     return 0;
 }
 void bootstrap_game_log(void) {
-    const char *path = getenv("RESOGUN_LOG");
+    const char *path = getenv("RECOMP_LOG");
     if (path && *path) reopen_log(path);
 }
 static void open_log(int append) {
@@ -110,7 +111,7 @@ static void open_log(int append) {
 #endif
         if (f) fclose(f);
     }
-    set_env("RESOGUN_LOG", path, 1);
+    set_env("RECOMP_LOG", path, 1);
     if (reopen_log(path)) return;
     time_t now = time(NULL);
     char when[64];
@@ -138,6 +139,13 @@ static int scan_one(void *ctx, const char *name) {
     if (!boot_path(f->path, sizeof(f->path), "%s/%s", s->dir, name) || boot_stat(f->path, &f->size, &f->mtime)) return 0;
     if (boot_pkg_info(f->path, &f->info, err, sizeof(err))) {
         printf("PKG %s skipped: %s\n", name, err);
+        return 0;
+    }
+    static const char *const ids[] = GAME_TITLE_IDS;
+    int ours = strstr(f->info.title, GAME_TITLE_MATCH) != NULL;
+    for (int i = 0; ids[i] && !ours; ++i) ours = !strcmp(f->info.title_id, ids[i]);
+    if (!ours) {
+        printf("PKG %s skipped: another game (%s, %s)\n", name, f->info.title_id, f->info.title);
         return 0;
     }
     if (strcmp(f->info.category, "gd") && strcmp(f->info.category, "gp")) {
@@ -202,7 +210,7 @@ static void progress_cb(void *ctx, uint64_t done, uint64_t total) {
 static int import_pkgs(PkgScan *s) {
     qsort(s->list, (size_t)s->count, sizeof(FoundPkg), pkg_order);
     if (strcmp(s->list[0].info.category, "gd")) {
-        message("Only an update PKG was found next to the program.\n\nPut the RESOGUN game PKG (the base game) in the same folder too.");
+        message("Only an update PKG was found next to the program.\n\nPut " GAME_PKG_HINT " in the same folder too.");
         return 1;
     }
     for (int i = 1; i < s->count; ++i)
@@ -216,7 +224,7 @@ static int import_pkgs(PkgScan *s) {
     /* Software: no GPU driver is loaded before the loader sets up the game's memory. */
     if (p.window) p.renderer = SDL_CreateRenderer(p.window, "software");
     char stamp_path[4096], err[512];
-    if (!boot_path(stamp_path, sizeof(stamp_path), "%s/.resogun-import", game_dir)) return 1;
+    if (!boot_path(stamp_path, sizeof(stamp_path), "%s/." GAME_PROGRAM "-import", game_dir)) return 1;
     boot_remove(stamp_path);
     int r = 0;
     for (int i = 0; i < s->count && !r; ++i) {
@@ -254,12 +262,12 @@ static int find_game(void) {
     boot_list_dir(base_dir, scan_one, &s);
     char eboot[4096], stamp_path[4096];
     boot_path(eboot, sizeof(eboot), "%s/eboot.bin", game_dir);
-    boot_path(stamp_path, sizeof(stamp_path), "%s/.resogun-import", game_dir);
+    boot_path(stamp_path, sizeof(stamp_path), "%s/." GAME_PROGRAM "-import", game_dir);
     int have_game = boot_is_file(eboot);
     if (!s.count) {
         if (have_game) return 0;
-        message("RESOGUN's game files were not found.\n\n"
-                "Put your RESOGUN PKGs (the game, and the 1.10 update if you have it) in the same folder as this program:\n%s\n\n"
+        message(GAME_TITLE "'s game files were not found.\n\n"
+                "Put " GAME_PKG_HINT " (and its updates, if you have them) in the same folder as this program:\n%s\n\n"
                 "Or a game folder named \"game\" (with eboot.bin in it).",
                 base_dir);
         return 1;
@@ -424,7 +432,7 @@ static int log_windows_report(void) {
                 }
             }
             /* Only reports about this program. */
-            if (!wcsstr(xml, L"resogun")) { close(events[i]); continue; }
+            if (!wcsstr(xml, L"" GAME_PROGRAM)) { close(events[i]); continue; }
             EVT_HANDLE meta = name[0] ? publisher(NULL, name, NULL, 0, 0) : NULL;
             DWORD n = 0;
             if (meta && format(meta, events[i], 0, 0, NULL, 1 /* EvtFormatMessageEvent */, 16384, text, &n)) {
@@ -449,7 +457,7 @@ static void watch_game(int argc, char **argv) {
     MultiByteToWideChar(CP_UTF8, 0, exe_path, -1, exe, 4096);
     quote_arg(cmd, 32768, &len, exe_path);
     for (int i = 1; i < argc; ++i) quote_arg(cmd, 32768, &len, argv[i]);
-    set_env("RESOGUN_WATCHED", "1", 1);
+    set_env("RECOMP_WATCHED", "1", 1);
     /* The game ends with this program (closed from Task Manager); what it starts (the restart)
      * does not. */
     HANDLE job = CreateJobObjectW(NULL, NULL);
@@ -463,10 +471,10 @@ static void watch_game(int argc, char **argv) {
     PROCESS_INFORMATION pi;
     memset(&si, 0, sizeof(si));
     si.cb = sizeof(si);
-    /* The game opens last_run.log itself (RESOGUN_LOG, bootstrap_game_log). */
+    /* The game opens last_run.log itself (RECOMP_LOG, bootstrap_game_log). */
     if (!CreateProcessW(exe, cmd, NULL, NULL, FALSE, CREATE_SUSPENDED, NULL, NULL, &si, &pi)) {
         fprintf(stderr, "Starting the game failed (error %lu)\n", GetLastError());
-        message("RESOGUN could not start the game (error %lu).", GetLastError());
+        message(GAME_TITLE " could not start the game (error %lu).", GetLastError());
         ExitProcess(1);
     }
     if (job) AssignProcessToJobObject(job, pi.hProcess);
@@ -490,9 +498,9 @@ static void watch_game(int argc, char **argv) {
         fflush(NULL);
         wchar_t log[4200];
         char where[4300];
-        snprintf(where, sizeof(where), "RESOGUN stopped unexpectedly.\n\nThe details are in\n%s\\last_run.log", user_dir);
+        snprintf(where, sizeof(where), GAME_TITLE " stopped unexpectedly.\n\nThe details are in\n%s\\last_run.log", user_dir);
         MultiByteToWideChar(CP_UTF8, 0, where, -1, log, 4200);
-        MessageBoxW(NULL, log, L"RESOGUN", MB_OK | MB_ICONERROR);
+        MessageBoxW(NULL, log, L"" GAME_TITLE, MB_OK | MB_ICONERROR);
     }
     ExitProcess(code);
 }
@@ -540,7 +548,7 @@ int bootstrap(int *argc, char ***argv) {
     fflush(stdout);
 
     char path[4200];
-    in_base(path, sizeof(path), "resogun.ini");
+    in_base(path, sizeof(path), GAME_PROGRAM ".ini");
     set_env("GOW3_CONFIG", path, 0);
     set_env("GOW3_GPU_USER_DIR", user_dir, 0);
     /* As run.py for a game without a frame rate patch: the engine steps 1/60 s per frame. */
@@ -548,12 +556,12 @@ int bootstrap(int *argc, char ***argv) {
     set_env("GOW3_ENGINE_FPS", "60", 0);
     set_env("GOW3_UPSCALER", "none", 0);
     set_env("GOW3_READBACK_LINEAR", "1", 0);
-    /* RESOGUN's frames are light: the two-stage draw pipeline (a second thread recording draws)
+    /* The frames are light: the two-stage draw pipeline (a second thread recording draws)
      * is off. With it the GPU scheduler was used from both threads at once (an endRendering
      * with none open, flicker, NVIDIA driver faults). GOW3_DRAW_PIPE=1 turns it back on. */
     set_env("GOW3_DRAW_PIPE", "0", 0);
 #ifndef _WIN32
-    set_env("SDL_APP_ID", "resogun", 0);
+    set_env("SDL_APP_ID", GAME_PROGRAM, 0);
 #endif
     /* The in-game menu's "Apply and restart" starts the program again. */
     char restart[4400];
@@ -590,8 +598,8 @@ int bootstrap(int *argc, char ***argv) {
 
 void bootstrap_cpu_message(const char *missing, int fatal) {
     if (fatal)
-        message("This processor lacks instruction sets RESOGUN's code uses: %s\n\n"
+        message("This processor lacks instruction sets the game's code uses: %s\n\n"
                 "An Intel Sandy Bridge (2011) or newer, or an AMD FX or newer processor, is needed.", missing);
     else
-        message("This processor lacks %s, which RESOGUN's code uses.", missing);
+        message("This processor lacks %s, which the game's code uses.", missing);
 }

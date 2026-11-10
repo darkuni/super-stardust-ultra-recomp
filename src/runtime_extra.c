@@ -521,6 +521,15 @@ static ABI int32_t net_mac(uint8_t *mac, int32_t flags) {
 }
 static ABI int32_t move_absent(void) { return (int32_t)0x80EE0002; }  /* SCE_MOVE_ERROR_NOT_INIT */
 static ABI int32_t streaming_off(void) { return (int32_t)0x804E0002; } /* not streaming */
+/* Super Stardust Ultra (CUSA05951) */
+static ABI int32_t np_offline(void) { return (int32_t)0x80550006; }              /* NP: signed out */
+static ABI int32_t count_zero(uint32_t *count) { if (count) *count=0; return 0; }
+static ABI int32_t netctl_result(int32_t event, int32_t *error) {
+    (void)event;
+    if (error) *error=(int32_t)0x80412108;                                       /* NET_CTL: not connected */
+    return 0;
+}
+static ABI int32_t hmd_no_device(void) { return (int32_t)0x81100004; }          /* HMD: not connected */
 static ABI int32_t trophy_no_icon(void) { return (int32_t)0x80551616; } /* SCE_NP_TROPHY_ERROR_ICON_FILE_NOT_FOUND */
 static ABI __attribute__((noreturn)) void load_exec(const char *path, const void *argv) {
     (void)argv;
@@ -632,6 +641,34 @@ static const RuntimeExport exports[]={
     {"sceAppContentAddcontEnqueueDownload",ok_noop}, {"sceAppContentGetEntitlementKey",no_entitlement},
     /* RESOGUN (CUSA00038): no add-ons, no PS VR headset, offline dialogs */
     {"sceAppContentGetAddcontInfo",no_entitlement},
+    /* Super Stardust Ultra (CUSA05951): offline, no PS VR headset (the 2D game), no streaming */
+    {"sceGameCustomDataDialogOpen",dialog_unavailable}, {"sceGameCustomDataDialogGetResult",dialog_unavailable},
+    {"sceInvitationDialogOpen",dialog_unavailable}, {"sceInvitationDialogGetResult",dialog_unavailable},
+    {"sceSigninDialogClose",ok_noop},
+    {"sceNetCtlInit",ok_noop}, {"sceNetCtlGetResult",netctl_result},
+    {"sceNpGetAccountCountry",np_offline}, {"sceNpInGameMessagePrepare",np_offline},
+    {"sceNpInGameMessageSendData",np_offline}, {"sceNpLookupCreateRequest",np_offline},
+    {"sceNpWordFilterCreateTitleCtx",np_offline},
+    {"sceNpMatching2GetUserInfoList",np_offline}, {"sceNpMatching2SignalingGetConnectionInfo",np_offline},
+    {"sceNpScoreGetRankingByNpId",np_offline}, {"sceNpScoreGetRankingByNpIdAsync",np_offline},
+    {"sceNpScoreGetRankingByRangeAsync",np_offline}, {"sceNpScoreGetFriendsRanking",np_offline},
+    {"sceNpScoreGetFriendsRankingAsync",np_offline}, {"sceNpScoreGetGameDataAsync",np_offline},
+    {"sceNpTusCreateNpTitleCtx",np_offline}, {"sceNpTusAddAndGetVariable",np_offline},
+    {"sceNpTusAddAndGetVariableVUser",np_offline}, {"sceNpTusDeleteMultiSlotData",np_offline},
+    {"sceNpTusGetData",np_offline}, {"sceNpTusGetDataVUser",np_offline},
+    {"sceNpTusGetMultiSlotVariable",np_offline}, {"sceNpTusGetMultiSlotVariableVUser",np_offline},
+    {"sceNpTusSetData",np_offline}, {"sceNpTusSetDataVUser",np_offline}, {"sceNpTusSetMultiSlotVariable",np_offline},
+    {"sceNpWebApiCreateServicePushEventFilter",np_offline}, {"sceNpWebApiDeleteServicePushEventFilter",np_offline},
+    {"sceNpWebApiRegisterServicePushEventCallback",np_offline}, {"sceNpWebApiUnregisterServicePushEventCallback",np_offline},
+    {"sceGameLiveStreamingGetCurrentStatus",streaming_off},
+    {"sceGameLiveStreamingSetPresetSocialFeedbackCommandsDescription",ok_noop},
+    {"sceGameLiveStreamingSetPresetSocialFeedbackCommands",ok_noop},
+    {"sceGameLiveStreamingClearPresetSocialFeedbackCommands",ok_noop},
+    {"sceGameLiveStreamingGetSocialFeedbackMessagesCount",count_zero},
+    {"sceGameLiveStreamingGetSocialFeedbackMessages",streaming_off},
+    {"sceGameLiveStreamingPostSocialMessage",streaming_off},
+    {"sceHmdReprojectionSetUserEventEnd",ok_noop}, {"sceHmdGet2DEyeOffset",hmd_no_device},
+
     {"sceHmdReprojectionAddDisplayBuffer",ok_noop}, {"sceHmdReprojectionSetUserEventStart",ok_noop},
     {"sceHmdReprojectionStartWideNear",ok_noop}, {"sceHmdReprojectionStartWithOverlay",ok_noop},
     {"sceNpFriendListDialogInitialize",ok_noop}, {"sceNpFriendListDialogTerminate",ok_noop},

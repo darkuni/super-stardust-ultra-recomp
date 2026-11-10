@@ -25,13 +25,13 @@ jobs:
         with:
           run-id: ${{ inputs.run_id }}
           github-token: ${{ github.token }}
-          name: resogun-win64-zip
+          name: stardust-win64-zip
           path: dist
       - uses: actions/download-artifact@v4
         with:
           run-id: ${{ inputs.run_id }}
           github-token: ${{ github.token }}
-          name: resogun-linux-x86_64
+          name: stardust-linux-x86_64
           path: dist
       - name: Create the release
         env:
@@ -42,5 +42,5 @@ jobs:
           set -e
           ls -la dist
           sha=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq .head_sha)
-          gh release create "$TAG" dist/resogun-win64.zip dist/resogun-linux-x86_64.tar.gz \
-            --target "$sha" --title "RESOGUN $TAG" --notes-file packaging/RELEASE-NOTES.md
+          gh release create "$TAG" dist/stardust-win64.zip dist/stardust-linux-x86_64.tar.gz \
+            --target "$sha" --title "Super Stardust Ultra $TAG" --notes-file packaging/RELEASE-NOTES.md

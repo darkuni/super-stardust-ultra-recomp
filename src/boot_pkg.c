@@ -474,9 +474,27 @@ int boot_pkg_extract(const char *path, const char *out_dir, BootPkgProgress prog
         if (node->flags & 1) { r = fail(&p, "%s: PFS-compressed file not supported", it->rel); break; }
         parent_dir(dst, dir, sizeof(dir));
         snprintf(tmp, sizeof(tmp), "%s.part", dst);
-        FILE *fo = boot_mkdir_p(dir) ? NULL : boot_fopen(tmp, "wb");
+        /* BOOT_PKG_RESUME (development: an unpack cut short): files already complete are kept
+         * and a .part file goes on from its last whole block. Not for updates, whose files
+         * replace ones of the same size. */
+        static int resume = -1;
+        if (resume < 0) resume = getenv("BOOT_PKG_RESUME") != NULL;
+        uint64_t have = 0, skip_blocks = 0;
+        int64_t have_time = 0;
+        if (resume && !boot_stat(dst, &have, &have_time) && have == node->size) {
+            done += node->size;
+            continue;
+        }
+        if (resume && !boot_stat(tmp, &have, &have_time)) skip_blocks = have / p.block_size;
+        FILE *fo = boot_mkdir_p(dir) ? NULL : boot_fopen(tmp, skip_blocks ? "r+b" : "wb");
+        if (fo && skip_blocks && boot_seek(fo, skip_blocks * p.block_size)) { fclose(fo); fo = NULL; }
         if (!fo) { r = fail(&p, "cannot write %s", dst); break; }
         uint64_t remaining = node->size, b = 0;
+        if (skip_blocks * p.block_size < node->size) {
+            b = skip_blocks;
+            remaining -= skip_blocks * p.block_size;
+            done += skip_blocks * p.block_size;
+        }
         while (!r && remaining) {
             uint64_t n = node->blocks - b < chunk_blocks ? node->blocks - b : chunk_blocks;
             if (!n) { r = fail(&p, "%s: file larger than its blocks", it->rel); break; }

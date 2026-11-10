@@ -1,18 +1,18 @@
-RESOGUN (PS4, CUSA00038) as a native program for Windows and Linux / SteamOS. No game files are included: bring your own RESOGUN fake PKGs (the game, and the 1.10 update if you have it).
+Super Stardust Ultra VR (PS4, CUSA05951) as a native program, played as the 2D game, for Windows and Linux / SteamOS. No game files are included: bring your own Super Stardust Ultra VR fake PKG.
 
 ## Downloads
 
-- **Windows:** `resogun-win64.zip`
-- **Linux / Steam Deck:** `resogun-linux-x86_64.tar.gz`
+- **Windows:** `stardust-win64.zip`
+- **Linux / Steam Deck:** `stardust-linux-x86_64.tar.gz`
 
 ## How to play
 
 1. Unpack the download into a folder.
-2. Put your PKG files next to `resogun.exe` (Linux: `resogun`).
-3. Run it. The first start unpacks the PKGs and prepares the game once (under a minute). Every start after that goes straight into the game.
+2. Put your PKG files next to `stardust.exe` (Linux: `stardust`).
+3. Run it. The first start unpacks the PKGs and prepares the game once (a minute or two). Every start after that goes straight into the game.
 
 - **Settings:** in game, press Insert or R3 + L2.
-- **Steam Deck Gaming Mode:** add `resogun` as a Non-Steam Game and set Compatibility to "Steam Linux Runtime" (not Proton).
+- **Steam Deck Gaming Mode:** add `stardust` as a Non-Steam Game and set Compatibility to "Steam Linux Runtime" (not Proton).
 
 ## Problems
 

@@ -1,6 +1,6 @@
 # Builds the player packages on every push to main (and by hand: Actions > Build Windows and
-# Linux > Run workflow). Artifacts: resogun-win64 (a zip with resogun.exe and its DLLs) and
-# resogun-linux-x86_64 (resogun + lib/ in a .tar.gz). Each is started on a clean machine first.
+# Linux > Run workflow). Artifacts: stardust-win64 (a zip with stardust.exe and its DLLs) and
+# stardust-linux-x86_64 (stardust + lib/ in a .tar.gz). Each is started on a clean machine first.
 name: Build Windows and Linux
 
 on:
@@ -41,16 +41,16 @@ jobs:
       - name: Build
         run: bash build.sh
       - name: Package
-        run: bash packaging/windows/package-resogun.sh
+        run: bash packaging/windows/package-stardust.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: resogun-win64
-          path: out/stage/resogun
+          name: stardust-win64
+          path: out/stage/stardust
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
-          name: resogun-win64-zip
-          path: dist/resogun-win64.zip
+          name: stardust-win64-zip
+          path: dist/stardust-win64.zip
           retention-days: 7
 
   windows-smoke:
@@ -59,16 +59,16 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: resogun-win64
-          path: resogun
+          name: stardust-win64
+          path: stardust
       # No MSYS2 here: every DLL must come with the package. --cpu-features loads them all and
       # exits without a game (the self-contained start would show a message box instead).
       - name: Start on a clean machine
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath resogun\resogun.exe -ArgumentList '--cpu-features' -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw "resogun.exe --cpu-features exited with $($p.ExitCode)" }
-          Write-Host "resogun.exe starts; exit code $($p.ExitCode)"
+          $p = Start-Process -FilePath stardust\stardust.exe -ArgumentList '--cpu-features' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "stardust.exe --cpu-features exited with $($p.ExitCode)" }
+          Write-Host "stardust.exe starts; exit code $($p.ExitCode)"
 
   linux:
     runs-on: ubuntu-24.04
@@ -82,12 +82,12 @@ jobs:
       - name: Build
         run: bash build.sh
       - name: Package
-        run: bash packaging/linux/package-resogun.sh
+        run: bash packaging/linux/package-stardust.sh
       # The archive keeps the executable bits; an artifact folder would not.
       - uses: actions/upload-artifact@v4
         with:
-          name: resogun-linux-x86_64
-          path: dist/resogun-linux-x86_64.tar.gz
+          name: stardust-linux-x86_64
+          path: dist/stardust-linux-x86_64.tar.gz
           if-no-files-found: error
 
   linux-smoke:
@@ -102,7 +102,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: resogun-linux-x86_64
+          name: stardust-linux-x86_64
           path: dist
       - name: Start on ${{ matrix.image }}
-        run: docker run --rm -v "$PWD:/w:ro" "${{ matrix.image }}" bash /w/packaging/linux/smoke-resogun.sh /w/dist/resogun-linux-x86_64.tar.gz
+        run: docker run --rm -v "$PWD:/w:ro" "${{ matrix.image }}" bash /w/packaging/linux/smoke-stardust.sh /w/dist/stardust-linux-x86_64.tar.gz

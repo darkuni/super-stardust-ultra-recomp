@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <cstdio>
 #include "common/assert.h"
 #include "common/elf_info.h"
 #include "common/logging/log.h"
@@ -137,6 +138,31 @@ s32 PS4_SYSV_ABI sceVideoOutRegisterBuffers(s32 handle, s32 startIndex, void* co
     }
 
     return driver->RegisterBuffers(port, startIndex, addresses, bufferNum, attribute);
+}
+
+// Super Stardust Ultra VR registers stereo (PS VR) buffers also when it runs on a TV: each pair
+// is registered as its left-eye buffer, so a flip shows that image.
+struct StereoBuffers {
+    void* left;
+    void* right;
+};
+s32 PS4_SYSV_ABI sceVideoOutRegisterStereoBuffers(s32 handle, s32 startIndex,
+                                                  const StereoBuffers* buffers, s32 bufferNum,
+                                                  const BufferAttribute* attribute) {
+    if (!buffers || !attribute || bufferNum <= 0 || bufferNum > 16) {
+        return ORBIS_VIDEO_OUT_ERROR_INVALID_ADDRESS;
+    }
+    void* left[16];
+    for (s32 i = 0; i < bufferNum; ++i) {
+        left[i] = buffers[i].left;
+    }
+    static bool logged = false;
+    if (!logged) {
+        logged = true;
+        std::printf("VideoOut: %d stereo buffers registered as their left-eye images (2D)\n",
+                    bufferNum);
+    }
+    return sceVideoOutRegisterBuffers(handle, startIndex, left, bufferNum, attribute);
 }
 
 s32 PS4_SYSV_ABI sceVideoOutSetFlipRate(s32 handle, s32 rate) {
@@ -475,6 +501,8 @@ void RegisterLib(Core::Loader::SymbolsResolver* sym) {
     LIB_FUNCTION("SbU3dwp80lQ", "libSceVideoOut", 1, "libSceVideoOut", sceVideoOutGetFlipStatus);
     LIB_FUNCTION("U46NwOiJpys", "libSceVideoOut", 1, "libSceVideoOut", sceVideoOutSubmitFlip);
     LIB_FUNCTION("w3BY+tAEiQY", "libSceVideoOut", 1, "libSceVideoOut", sceVideoOutRegisterBuffers);
+    LIB_FUNCTION("lCTCOogRbk0", "libSceVideoOut", 1, "libSceVideoOut",
+                 sceVideoOutRegisterStereoBuffers);
     LIB_FUNCTION("HXzjK9yI30k", "libSceVideoOut", 1, "libSceVideoOut", sceVideoOutAddFlipEvent);
     LIB_FUNCTION("Xru92wHJRmg", "libSceVideoOut", 1, "libSceVideoOut", sceVideoOutAddVblankEvent);
     LIB_FUNCTION("CBiu4mCE1DA", "libSceVideoOut", 1, "libSceVideoOut", sceVideoOutSetFlipRate);

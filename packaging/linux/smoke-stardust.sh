@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Starts the packaged resogun in a clean container: installs only what a desktop or SteamOS
+# Starts the packaged stardust in a clean container: installs only what a desktop or SteamOS
 # always has (Vulkan loader, X11 client libraries, fonts, zlib), unpacks the archive and runs
-# `resogun --cpu-features`, which loads every library and exits without a game.
-# Usage (CI): docker run --rm -v "$PWD:/w:ro" <image> bash /w/packaging/linux/smoke-resogun.sh /w/dist/resogun-linux-x86_64.tar.gz
+# `stardust --cpu-features`, which loads every library and exits without a game.
+# Usage (CI): docker run --rm -v "$PWD:/w:ro" <image> bash /w/packaging/linux/smoke-stardust.sh /w/dist/stardust-linux-x86_64.tar.gz
 set -euo pipefail
 archive=$1
 if command -v apt-get >/dev/null; then
@@ -19,11 +19,11 @@ grep -m1 PRETTY_NAME /etc/os-release
 ldd --version | sed -n 1p
 work=$(mktemp -d)
 tar -C "$work" -xzf "$archive"
-missing=$(ldd "$work/resogun/resogun" | grep 'not found' || true)
+missing=$(ldd "$work/stardust/stardust" | grep 'not found' || true)
 if [[ -n $missing ]]; then
     echo "FAIL: libraries not found:" >&2
     echo "$missing" >&2
     exit 1
 fi
-"$work/resogun/resogun" --cpu-features
-echo "OK: resogun starts"
+"$work/stardust/stardust" --cpu-features
+echo "OK: stardust starts"

@@ -158,6 +158,13 @@ static ABI int32_t *net_errno_loc(void) { return &net_errno; }
 static ABI int32_t net_pool_create(const char *name,int size,int flags) { (void)name; (void)size; (void)flags; return new_id(); }
 static ABI int32_t net_pool_destroy(int id) { (void)id; return 0; }
 static ABI int32_t net_unreachable(void) { net_errno=51; return NET_ENETUNREACH; }
+/* Local sockets that never carry anything: a game's diagnostics listener (FMOD's profiler port,
+ * Super Stardust Ultra) is set up and simply never gets a connection. Connecting, sending and
+ * receiving still fail as unreachable. */
+static int32_t idle_sockets=0x1000;
+static ABI int32_t net_idle_socket(void) { return __atomic_add_fetch(&idle_sockets,1,__ATOMIC_RELAXED); }
+static ABI int32_t net_idle_ok(void) { return 0; }
+static ABI int32_t net_idle_accept(void) { net_errno=35; return (int32_t)0x80410123; } /* EWOULDBLOCK */
 static ABI int32_t net_epoll_create(const char *name,int flags) { (void)name; (void)flags; return new_id(); }
 static ABI int32_t net_epoll_destroy(int id) { (void)id; return 0; }
 static ABI int32_t net_resolver_create(const char *name,int pool,int flags) { (void)name; (void)pool; (void)flags; return new_id(); }
@@ -651,12 +658,12 @@ static const RuntimeExport exports[]={
     {"sceNetResolverCreate",net_resolver_create}, {"sceNetResolverDestroy",net_resolver_destroy},
     {"sceNetHtons",net_htons}, {"sceNetNtohs",net_ntohs}, {"sceNetHtonl",net_htonl}, {"sceNetNtohl",net_ntohl},
     {"sceNetInetPton",net_pton}, {"sceNetInetNtop",net_ntop},
-    {"sceNetSocket",net_unreachable}, {"sceNetConnect",net_unreachable}, {"sceNetBind",net_unreachable},
-    {"sceNetListen",net_unreachable}, {"sceNetAccept",net_unreachable}, {"sceNetSend",net_unreachable},
+    {"sceNetSocket",net_idle_socket}, {"sceNetConnect",net_unreachable}, {"sceNetBind",net_idle_ok},
+    {"sceNetListen",net_idle_ok}, {"sceNetAccept",net_idle_accept}, {"sceNetSend",net_unreachable},
     {"sceNetSendto",net_unreachable}, {"sceNetRecv",net_unreachable}, {"sceNetRecvfrom",net_unreachable},
-    {"sceNetSetsockopt",net_unreachable}, {"sceNetGetsockopt",net_unreachable},
+    {"sceNetSetsockopt",net_idle_ok}, {"sceNetGetsockopt",net_unreachable},
     {"sceNetGetsockname",net_unreachable}, {"sceNetShutdown",net_unreachable},
-    {"sceNetSocketClose",net_unreachable}, {"sceNetSocketAbort",net_unreachable},
+    {"sceNetSocketClose",net_idle_ok}, {"sceNetSocketAbort",net_unreachable},
     {"sceNetEpollControl",net_unreachable}, {"sceNetEpollWait",net_unreachable}, {"sceNetEpollAbort",net_unreachable},
     {"sceNetResolverStartNtoa",net_unreachable}, {"sceNetResolverStartAton",net_unreachable},
     {"sceNetCtlGetState",netctl_state}, {"sceNetCtlGetInfo",netctl_info},

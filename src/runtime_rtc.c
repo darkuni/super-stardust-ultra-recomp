@@ -198,7 +198,7 @@ static ABI int32_t rtc_parse_date_time(uint64_t *utc, const char *text) {
 
 static const RuntimeExport exports[]={
     {"sceRtcTickAddHours",rtc_tick_add_hours}, {"sceRtcTickAddSeconds",rtc_tick_add_seconds},
-    {"sceRtcParseDateTime",rtc_parse_date_time},
+    {"sceRtcParseDateTime",rtc_parse_date_time}, {"sceRtcParseRFC3339",rtc_parse_date_time},
     {"sceRtcGetCurrentClockLocalTime",rtc_current_local}, {"sceRtcGetCurrentClock",rtc_current_clock},
     {"sceRtcGetCurrentTick",rtc_current_tick}, {"sceRtcGetCurrentNetworkTick",rtc_current_tick},
     {"sceRtcConvertUtcToLocalTime",rtc_utc_to_local}, {"sceRtcConvertLocalTimeToUtc",rtc_local_to_utc},

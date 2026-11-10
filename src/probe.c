@@ -1229,6 +1229,15 @@ static int cpu_supported(char *missing, size_t size) {
     return 1;
 }
 
+#ifndef _WIN32
+static ABI uint64_t debug_hook(uint64_t a, uint64_t b, uint64_t c, uint64_t d) {
+    const unsigned char *image=runtime_image_base();
+    uintptr_t ret=(uintptr_t)__builtin_return_address(0);
+    printf("Debug hook: %#llx %#llx %#llx %#llx (from guest offset %#llx)\n",(unsigned long long)a,(unsigned long long)b,
+           (unsigned long long)c,(unsigned long long)d,(unsigned long long)(ret-(uintptr_t)image));
+    return 0;
+}
+#endif
 int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
 #ifndef _WIN32
@@ -1263,7 +1272,7 @@ int main(int argc, char **argv) {
         if (code) return code;
         bootstrapped = 1;
     }
-    if (getenv("RESOGUN_WATCHED")) {  /* the game process bootstrap() started */
+    if (getenv("RECOMP_WATCHED")) {  /* the game process bootstrap() started */
         bootstrapped = 1;
         bootstrap_game_log();
     }
@@ -1368,7 +1377,7 @@ int main(int argc, char **argv) {
     page_size = (size_t)sysconf(_SC_PAGESIZE);
     struct sigaction sa = {0}; sa.sa_sigaction = fault; sa.sa_flags = SA_SIGINFO;
     sigemptyset(&sa.sa_mask);
-    sigaction(SIGSEGV, &sa, NULL); sigaction(SIGILL, &sa, NULL); sigaction(SIGBUS, &sa, NULL);
+    sigaction(SIGSEGV, &sa, NULL); sigaction(SIGILL, &sa, NULL); sigaction(SIGBUS, &sa, NULL); sigaction(SIGFPE, &sa, NULL);
     sigaction(SIGTRAP, &sa, NULL); /* int3 ISA sites */
     Dl_info self_info;
     if (dladdr((void *)main,&self_info)) exe_base=(uintptr_t)self_info.dli_fbase;
@@ -1619,6 +1628,20 @@ int main(int argc, char **argv) {
             if (result) fail("module initializer failed");
         }
     }
+#ifndef _WIN32
+    /* GOW3_DEBUG_HOOK=<hex offset> (development): the guest function there is replaced by one
+     * that prints its first four arguments and returns 0, e.g. a game's error reporter. */
+    if (getenv("GOW3_DEBUG_HOOK")) {
+        uint64_t at=strtoull(getenv("GOW3_DEBUG_HOOK"),NULL,16);
+        unsigned char *f=image+at;
+        uintptr_t page=(uintptr_t)f&~(uintptr_t)4095;
+        if (!mprotect((void *)page,8192,PROT_READ|PROT_WRITE|PROT_EXEC)) {
+            uint64_t target=(uint64_t)(uintptr_t)debug_hook;
+            f[0]=0x48; f[1]=0xb8; memcpy(f+2,&target,8); f[10]=0xff; f[11]=0xe0; /* movabs rax; jmp rax */
+            printf("Debug hook at guest offset 0x%" PRIx64 "\n",at);
+        }
+    }
+#endif
     printf("Entering original x86-64 code at guest offset 0x%" PRIx64 "\n", entry);
 #ifdef _WIN32
     atexit(report_exit_caller); /* registered last, so it runs first */
