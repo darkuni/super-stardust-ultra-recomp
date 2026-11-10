@@ -550,6 +550,24 @@ int bootstrap(int *argc, char ***argv) {
     char path[4200];
     in_base(path, sizeof(path), GAME_PROGRAM ".ini");
     set_env("GOW3_CONFIG", path, 0);
+    /* stereo_eye=left|right in the settings file: which image of the game's left/right display
+     * pair is shown (test build: right). */
+    {
+        const char *eye = "right";
+        FILE *ini = boot_fopen(path, "r");
+        char line[256];
+        static char value[16];
+        while (ini && fgets(line, sizeof(line), ini)) {
+            if (!strncmp(line, "stereo_eye=", 11)) {
+                snprintf(value, sizeof(value), "%s", line + 11);
+                value[strcspn(value, "\r\n ")] = 0;
+                eye = value;
+            }
+        }
+        if (ini) fclose(ini);
+        set_env("GOW3_STEREO_EYE", eye, 0);
+        printf("Display: the %s-eye image (stereo_eye= in %s)\n", eye, path);
+    }
     set_env("GOW3_GPU_USER_DIR", user_dir, 0);
     /* As run.py for a game without a frame rate patch: the engine steps 1/60 s per frame. */
     set_env("GOW3_VBLANK_HZ", "60", 0);

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <cstdio>
+#include <cstdlib>
 #include "common/assert.h"
 #include "common/elf_info.h"
 #include "common/logging/log.h"
@@ -152,15 +153,19 @@ s32 PS4_SYSV_ABI sceVideoOutRegisterStereoBuffers(s32 handle, s32 startIndex,
     if (!buffers || !attribute || bufferNum <= 0 || bufferNum > 16) {
         return ORBIS_VIDEO_OUT_ERROR_INVALID_ADDRESS;
     }
+    // GOW3_STEREO_EYE=right shows the right-eye images instead (development).
+    const char* eye = std::getenv("GOW3_STEREO_EYE");
+    const bool right = eye && eye[0] == 'r';
     void* left[16];
     for (s32 i = 0; i < bufferNum; ++i) {
-        left[i] = buffers[i].left;
+        left[i] = right ? buffers[i].right : buffers[i].left;
     }
     static bool logged = false;
     if (!logged) {
         logged = true;
-        std::printf("VideoOut: %d stereo buffers registered as their left-eye images (2D)\n",
-                    bufferNum);
+        std::printf("VideoOut: %d stereo buffers registered as their %s-eye images (2D); "
+                    "left %p right %p\n",
+                    bufferNum, right ? "right" : "left", buffers[0].left, buffers[0].right);
     }
     return sceVideoOutRegisterBuffers(handle, startIndex, left, bufferNum, attribute);
 }
