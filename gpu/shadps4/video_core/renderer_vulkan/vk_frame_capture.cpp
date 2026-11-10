@@ -42,10 +42,19 @@ std::vector<Entry> entries;
 std::vector<std::pair<Target, bool>> pending_sampled;
 std::vector<std::string> pending_buffers;
 
+// GOW3_CAPTURE_DRAWS=1: every draw is listed with its textures and constants.
+bool AllDraws() {
+    static const bool on = [] {
+        const char* env = std::getenv("GOW3_CAPTURE_DRAWS");
+        return env && *env == '1';
+    }();
+    return on;
+}
+
 void AddBuffers(Entry& entry) {
     // Constants of full-screen passes (post-processing: camera matrices) and of the first draw
     // of each geometry pass.
-    if (entry.draws <= 4) {
+    if (entry.draws <= 4 || AllDraws()) {
         for (auto& b : pending_buffers) {
             entry.buffers.push_back(std::move(b));
         }
@@ -273,6 +282,15 @@ void FrameCapture::Draw(u64 vs_hash, u64 ps_hash, u32 num_indices, u32 num_insta
     auto& e = entries.back();
     ++e.draws;
     e.indices += u64(num_indices) * std::max(num_instances, 1u);
+    if (AllDraws()) {
+        std::string line = std::format("\n  draw {} vs {:x} ps {:x} indices {} instances {}:", e.draws,
+                                       vs_hash, ps_hash, num_indices, num_instances);
+        for (const auto& [t, storage] : pending_sampled) {
+            line += std::format(" [{}{:#x} {} {}x{} tile {}]", storage ? "storage " : "", t.address,
+                                vk::to_string(t.format), t.width, t.height, t.tile_mode);
+        }
+        e.buffers.push_back(line);
+    }
     AddShader(e, vs_hash);
     AddShader(e, ps_hash);
     AddSampled(e);
