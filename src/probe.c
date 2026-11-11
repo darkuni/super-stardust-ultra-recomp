@@ -48,6 +48,7 @@ typedef struct { uint64_t target, kind, value, addend; } Reloc;
 static char (*names)[128];
 static uint64_t import_count;
 static unsigned char *image;
+extern uintptr_t gow3_image_base, gow3_image_size; /* GPU library: draw-stack census */
 static uint64_t image_size;
 unsigned char *runtime_image_base(void) { return image; }
 /* WipEout (#118): the byte the game sets while a race is paused, in the pause menu and in photo
@@ -1664,6 +1665,8 @@ int main(int argc, char **argv) {
     }
     if (!executable_entry) fail("entry is not executable");
     image_size = size;
+    gow3_image_base = (uintptr_t)image; gow3_image_size = (uintptr_t)size;
+    printf("Image base %p\n", (void *)image);
     printf("Mapped %" PRIu64 " bytes, %" PRIu64 " segments; applied %" PRIu64 " relocations\n", size, ns, nr);
     if (native_libc) {
         for (uint64_t m=0;m<module_count;++m) {

@@ -1,6 +1,12 @@
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <cstdlib>
+#include <cstring>
+#include <string>
+#include <chrono>
+#include <thread>
+#include <unordered_map>
 #include <cstdio>
 #include <mutex>
 #include <set>
@@ -456,6 +462,125 @@ u32 PS4_SYSV_ABI sceGnmDispatchInitDefaultHardwareState(u32* cmdbuf, u32 size) {
     return HwInitPacketSize;
 }
 
+// stardust: draw-stack census (GOW3_DRAW_CALLERS=1). Each draw records the game's call stack
+// (frame-pointer chain, offsets from the image base); every 5 s the stacks that appeared or
+// went away are printed, so a weapon switch shows which game code draws (or stops drawing).
+extern "C" {
+uintptr_t gow3_image_base = 0;
+uintptr_t gow3_image_size = 0;
+}
+namespace {
+constexpr int CensusDepth = 8;
+struct DrawStack {
+    u32 frames[CensusDepth];
+    bool operator==(const DrawStack& o) const {
+        return std::memcmp(frames, o.frames, sizeof(frames)) == 0;
+    }
+};
+struct DrawStackHash {
+    size_t operator()(const DrawStack& s) const {
+        u64 h = 1469598103934665603ull;
+        for (u32 f : s.frames) h = (h ^ f) * 1099511628211ull;
+        return size_t(h);
+    }
+};
+struct DrawCensus {
+    std::mutex mutex;
+    std::unordered_map<DrawStack, u64, DrawStackHash> now, before;
+    bool started = false;
+};
+DrawCensus& Census() {
+    static DrawCensus c;
+    return c;
+}
+bool CensusOn() {
+    static const bool on = [] {
+        const char* v = std::getenv("GOW3_DRAW_CALLERS");
+        return v && *v && *v != '0';
+    }();
+    return on;
+}
+std::string StackText(const DrawStack& s) {
+    std::string t;
+    char buf[16];
+    for (u32 f : s.frames) {
+        if (!f) break;
+        std::snprintf(buf, sizeof(buf), "%s%x", t.empty() ? "" : " < ", f);
+        t += buf;
+    }
+    return t;
+}
+void CensusReport() {
+    auto& c = Census();
+    u32 second = 0;
+    for (;;) {
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+        second += 5;
+        std::unordered_map<DrawStack, u64, DrawStackHash> cur;
+        {
+            std::scoped_lock lk{c.mutex};
+            cur.swap(c.now);
+        }
+        u64 total = 0;
+        for (auto& [k, v] : cur) total += v;
+        std::printf("Draw callers @%us: %zu stacks, %llu draws\n", second, cur.size(),
+                    (unsigned long long)total);
+        int printed = 0;
+        for (auto& [k, v] : cur)
+            if (!c.before.count(k) && printed++ < 40)
+                std::printf("  new  %6llu  %s\n", (unsigned long long)v, StackText(k).c_str());
+        printed = 0;
+        for (auto& [k, v] : c.before)
+            if (!cur.count(k) && printed++ < 40)
+                std::printf("  gone          %s\n", StackText(k).c_str());
+        std::fflush(stdout);
+        c.before.swap(cur);
+    }
+}
+} // namespace
+
+// The return address into the game is found on the stack above this HLE function's frame;
+// the slot below it holds the game's rbp (saved by our prologue's push rbp), and from there the
+// game's own frame-pointer chain is walked.
+static void NoteDrawStack(void* start, void* ret) {
+    if (!CensusOn() || !gow3_image_base) return;
+    const uintptr_t base = gow3_image_base, size = gow3_image_size;
+    auto in_image = [&](void* p) { return uintptr_t(p) - base < size; };
+    if (!in_image(ret)) return;
+    DrawStack s{};
+    s.frames[0] = u32(uintptr_t(ret) - base);
+    int n = 1;
+    void** slot = reinterpret_cast<void**>(uintptr_t(start) & ~uintptr_t(7));
+    for (int i = 0; i < 512; ++i, ++slot) {
+        if (slot[0] != ret) continue;
+        void** fp = static_cast<void**>(slot[-1]);
+        if (fp <= slot || uintptr_t(fp) - uintptr_t(slot) > (1u << 20) || (uintptr_t(fp) & 7) ||
+            !in_image(fp[1]))
+            continue;
+        while (n < CensusDepth) {
+            void* r = fp[1];
+            if (!in_image(r)) break;
+            s.frames[n++] = u32(uintptr_t(r) - base);
+            void** next = static_cast<void**>(fp[0]);
+            if (next <= fp || uintptr_t(next) - uintptr_t(fp) > (8u << 20) ||
+                (uintptr_t(next) & 7))
+                break;
+            fp = next;
+        }
+        break;
+    }
+    auto& c = Census();
+    std::scoped_lock lk{c.mutex};
+    if (!c.started) {
+        c.started = true;
+        std::thread(CensusReport).detach();
+        std::printf("Draw callers: census on (image base %p)\n", (void*)base);
+        std::fflush(stdout);
+    }
+    ++c.now[s];
+}
+#define NOTE_DRAW() NoteDrawStack(__builtin_frame_address(0), __builtin_return_address(0))
+
 // resogun/stardust: a draw the HLE turns down leaves no packet in the command buffer, so the
 // game's draw silently disappears. Each kind is reported once (function, size, flags, caller).
 static void ReportRejectedDraw(const char* fn, u32 size, u32 flags, void* caller) {
@@ -473,6 +598,7 @@ static void ReportRejectedDraw(const char* fn, u32 size, u32 flags, void* caller
 
 s32 PS4_SYSV_ABI sceGnmDrawIndex(u32* cmdbuf, u32 size, u32 index_count, uintptr_t index_addr,
                                  u32 flags, u32 type) {
+    NOTE_DRAW();
     LOG_TRACE(Lib_GnmDriver, "called");
 
     // Flags beyond the draw modifier and predication bits are left out of the packet (they
@@ -498,6 +624,7 @@ s32 PS4_SYSV_ABI sceGnmDrawIndex(u32* cmdbuf, u32 size, u32 index_count, uintptr
 }
 
 s32 PS4_SYSV_ABI sceGnmDrawIndexAuto(u32* cmdbuf, u32 size, u32 index_count, u32 flags) {
+    NOTE_DRAW();
     LOG_TRACE(Lib_GnmDriver, "called");
 
     if ((flags & 0x1ffffffe) != 0) {
@@ -517,6 +644,7 @@ s32 PS4_SYSV_ABI sceGnmDrawIndexAuto(u32* cmdbuf, u32 size, u32 index_count, u32
 s32 PS4_SYSV_ABI sceGnmDrawIndexIndirect(u32* cmdbuf, u32 size, u32 data_offset, u32 shader_stage,
                                          u32 vertex_sgpr_offset, u32 instance_sgpr_offset,
                                          u32 flags) {
+    NOTE_DRAW();
     LOG_TRACE(Lib_GnmDriver, "called");
 
     if (cmdbuf && (size == 9) && (shader_stage < ShaderStages::Max) &&
@@ -544,6 +672,7 @@ s32 PS4_SYSV_ABI sceGnmDrawIndexIndirectCountMulti(u32* cmdbuf, u32 size, u32 da
                                                    u32 max_count, u64 count_addr, u32 shader_stage,
                                                    u32 vertex_sgpr_offset, u32 instance_sgpr_offset,
                                                    u32 flags) {
+    NOTE_DRAW();
     LOG_TRACE(Lib_GnmDriver, "called");
 
     if ((!sceKernelIsNeoMode() || !UseNeoCompatSequences) && cmdbuf && (size == 16) &&
@@ -580,6 +709,7 @@ s32 PS4_SYSV_ABI sceGnmDrawIndexIndirectCountMulti(u32* cmdbuf, u32 size, u32 da
 int PS4_SYSV_ABI sceGnmDrawIndexIndirectMulti(u32* cmdbuf, u32 size, u32 data_offset, u32 max_count,
                                               u32 shader_stage, u32 vertex_sgpr_offset,
                                               u32 instance_sgpr_offset, u32 flags) {
+    NOTE_DRAW();
     LOG_TRACE(Lib_GnmDriver, "called");
 
     if (cmdbuf && (size == 11) && (vertex_sgpr_offset < 0x10u) && (instance_sgpr_offset < 0x10u) &&
@@ -614,6 +744,7 @@ int PS4_SYSV_ABI sceGnmDrawIndexMultiInstanced() {
 
 s32 PS4_SYSV_ABI sceGnmDrawIndexOffset(u32* cmdbuf, u32 size, u32 index_offset, u32 index_count,
                                        u32 flags) {
+    NOTE_DRAW();
     LOG_TRACE(Lib_GnmDriver, "called");
 
     if (cmdbuf && (size == 9)) {
@@ -632,6 +763,7 @@ s32 PS4_SYSV_ABI sceGnmDrawIndexOffset(u32* cmdbuf, u32 size, u32 index_offset, 
 
 s32 PS4_SYSV_ABI sceGnmDrawIndirect(u32* cmdbuf, u32 size, u32 data_offset, u32 shader_stage,
                                     u32 vertex_sgpr_offset, u32 instance_sgpr_offset, u32 flags) {
+    NOTE_DRAW();
     LOG_TRACE(Lib_GnmDriver, "called");
 
     if (cmdbuf && (size == 9) && (shader_stage < ShaderStages::Max) &&
@@ -664,6 +796,7 @@ int PS4_SYSV_ABI sceGnmDrawIndirectCountMulti() {
 s32 PS4_SYSV_ABI sceGnmDrawIndirectMulti(u32* cmdbuf, u32 size, u32 data_offset, u32 max_count,
                                          u32 shader_stage, u32 vertex_sgpr_offset,
                                          u32 instance_sgpr_offset, u32 flags) {
+    NOTE_DRAW();
     LOG_TRACE(Lib_GnmDriver, "called");
 
     if (cmdbuf && size == 11 && shader_stage < ShaderStages::Max && vertex_sgpr_offset < 0x10 &&

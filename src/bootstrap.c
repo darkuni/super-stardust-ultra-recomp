@@ -554,6 +554,7 @@ int bootstrap(int *argc, char ***argv) {
      * user/captures. */
     set_env("GOW3_FRAME_CAPTURE_KEY", "1", 0);
     set_env("GOW3_CAPTURE_DRAWS", "1", 0);
+    set_env("GOW3_DRAW_CALLERS", "1", 0);
     /* stereo_eye=left|right in the settings file: which image of the game's left/right display
      * pair is shown. */
     {
