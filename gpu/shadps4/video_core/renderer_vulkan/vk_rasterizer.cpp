@@ -1938,6 +1938,20 @@ void Rasterizer::ResolveVertexBuffers(const GraphicsPipeline* pipeline,
                                 : XXH3_64bits(guest_buffers.data(),
                                               guest_buffers.size() * sizeof(AmdGpu::Buffer));
     }
+    // Frame capture of every draw (GOW3_CAPTURE_DRAWS): each vertex stream's first vertices as
+    // guest memory holds them (stage "vb", slot = stream).
+    if (FrameCapture::IsRecording() && std::getenv("GOW3_CAPTURE_DRAWS")) {
+        u32 slot = 0;
+        for (const auto& vb : guest_buffers) {
+            if (vb.base_address && vb.GetSize()) {
+                const u64 bytes = std::min<u64>(vb.GetSize(), std::max<u32>(vb.GetStride(), 4) * 3);
+                FrameCapture::Buffer(0xbbbbbbbb00000000ull | vb.GetStride(), slot,
+                                     vb.base_address,
+                                     reinterpret_cast<const void*>(vb.base_address), bytes);
+            }
+            ++slot;
+        }
+    }
     // Object motion research: vertex streams of G-buffer draws.
     if (FrameCapture::Active() && gbuffer_draw) {
         for (const auto& vb : guest_buffers) {
