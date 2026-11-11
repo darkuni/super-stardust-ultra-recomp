@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #include <stdint.h>
 #include <stdio.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
@@ -673,7 +674,64 @@ static uint64_t patch_tcb_loads(const Segment *segments, uint64_t count) {
 /* ucontext gregs of IsaRegs.gpr (x86 numbering). */
 static const int isa_gregs[16]={REG_RAX,REG_RCX,REG_RDX,REG_RBX,REG_RSP,REG_RBP,REG_RSI,REG_RDI,
                                 REG_R8,REG_R9,REG_R10,REG_R11,REG_R12,REG_R13,REG_R14,REG_R15};
+/* GOW3_COUNT_CALLS=<hex offset>,... (development, Linux): each guest function there (it must
+ * begin with push rbp) traps once per call; the calls and their callers are printed every 5 s. */
+enum { COUNT_MAX = 64, COUNT_CALLERS = 4 };
+static uintptr_t count_at[COUNT_MAX];
+static uint64_t count_calls[COUNT_MAX], count_caller[COUNT_MAX][COUNT_CALLERS];
+static int count_n;
+static void *count_report(void *arg) {
+    const unsigned char *image = arg;
+    for (;;) {
+        sleep(5);
+        for (int i = 0; i < count_n; ++i) {
+            uint64_t n = __atomic_exchange_n(&count_calls[i], 0, __ATOMIC_RELAXED);
+            if (!n) continue;
+            printf("Calls: %#llx x%llu from", (unsigned long long)(count_at[i] - (uintptr_t)image), (unsigned long long)n);
+            for (int k = 0; k < COUNT_CALLERS && count_caller[i][k]; ++k)
+                printf(" %#llx", (unsigned long long)(count_caller[i][k] - (uintptr_t)image));
+            printf("\n");
+        }
+        fflush(stdout);
+    }
+    return NULL;
+}
+static void count_calls_setup(unsigned char *image) {
+    const char *list = getenv("GOW3_COUNT_CALLS");
+    if (!list) return;
+    for (const char *c = list; *c && count_n < COUNT_MAX;) {
+        char *end;
+        uint64_t at = strtoull(c, &end, 16);
+        if (end == c) break;
+        unsigned char *f = image + at;
+        if (f[0] == 0x55 && !mprotect((void *)((uintptr_t)f & ~(uintptr_t)4095), 8192, PROT_READ | PROT_WRITE | PROT_EXEC)) {
+            count_at[count_n++] = (uintptr_t)f;
+            f[0] = 0xcc;
+        } else printf("Calls: %#llx skipped (no push rbp)\n", (unsigned long long)at);
+        c = *end == ',' ? end + 1 : end;
+    }
+    pthread_t t;
+    pthread_create(&t, NULL, count_report, image);
+    printf("Calls: counting %d functions\n", count_n);
+}
 static void fault(int sig, siginfo_t *info, void *context) {
+    if (sig == SIGTRAP && count_n) {
+        greg_t *g = ((ucontext_t *)context)->uc_mcontext.gregs;
+        const uintptr_t at = (uintptr_t)g[REG_RIP] - 1;
+        for (int i = 0; i < count_n; ++i) {
+            if (count_at[i] != at) continue;
+            __atomic_add_fetch(&count_calls[i], 1, __ATOMIC_RELAXED);
+            const uint64_t caller = *(uint64_t *)g[REG_RSP];
+            for (int k = 0; k < COUNT_CALLERS; ++k) {
+                if (count_caller[i][k] == caller) break;
+                if (!count_caller[i][k]) { count_caller[i][k] = caller; break; }
+            }
+            g[REG_RSP] -= 8;                                  /* the replaced push rbp */
+            *(uint64_t *)g[REG_RSP] = (uint64_t)g[REG_RBP];
+            g[REG_RIP] = (greg_t)(at + 1);
+            return;
+        }
+    }
     if (sig == SIGTRAP && isa_table) {
         /* An int3 ISA site (RIP is past the CC byte); any other trap ends in the report below. */
         greg_t *g = ((ucontext_t *)context)->uc_mcontext.gregs;
@@ -1629,6 +1687,7 @@ int main(int argc, char **argv) {
         }
     }
 #ifndef _WIN32
+    count_calls_setup(image);
     /* GOW3_DEBUG_HOOK=<hex offset> (development): the guest function there is replaced by one
      * that prints its first four arguments and returns 0, e.g. a game's error reporter. */
     if (getenv("GOW3_DEBUG_HOOK")) {

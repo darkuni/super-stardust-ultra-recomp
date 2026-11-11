@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <cstdio>
+#include <mutex>
+#include <set>
 #include "gnm_error.h"
 #include "gnmdriver.h"
 
@@ -453,12 +456,31 @@ u32 PS4_SYSV_ABI sceGnmDispatchInitDefaultHardwareState(u32* cmdbuf, u32 size) {
     return HwInitPacketSize;
 }
 
+// resogun/stardust: a draw the HLE turns down leaves no packet in the command buffer, so the
+// game's draw silently disappears. Each kind is reported once (function, size, flags, caller).
+static void ReportRejectedDraw(const char* fn, u32 size, u32 flags, void* caller) {
+    static std::mutex mutex;
+    static std::set<u64> seen;
+    std::scoped_lock lk{mutex};
+    const u64 key = (u64(reinterpret_cast<uintptr_t>(fn)) << 20) ^ (u64(size) << 40) ^ flags ^
+                    (reinterpret_cast<uintptr_t>(caller) * 31);
+    if (seen.size() < 128 && seen.insert(key).second) {
+        std::printf("GnmDriver: %s turned down (size %u, flags %#x, caller %p)\n", fn, size, flags,
+                    caller);
+        std::fflush(stdout);
+    }
+}
+
 s32 PS4_SYSV_ABI sceGnmDrawIndex(u32* cmdbuf, u32 size, u32 index_count, uintptr_t index_addr,
                                  u32 flags, u32 type) {
     LOG_TRACE(Lib_GnmDriver, "called");
 
-    if (cmdbuf && (size == 10) && (index_addr != 0) && (index_addr & 1) == 0 &&
-        (flags & 0x1ffffffe) == 0) { // no predication will be set in the packet
+    // Flags beyond the draw modifier and predication bits are left out of the packet (they
+    // used to drop the whole draw).
+    if ((flags & 0x1ffffffe) != 0) {
+        ReportRejectedDraw("sceGnmDrawIndex flags", size, flags, __builtin_return_address(0));
+    }
+    if (cmdbuf && (size == 10) && (index_addr != 0) && (index_addr & 1) == 0) {
         auto* draw_index = reinterpret_cast<PM4CmdDrawIndex2*>(cmdbuf);
         draw_index->header =
             PM4Type3Header{PM4ItOpcode::DrawIndex2, 4, PM4ShaderType::ShaderGraphics};
@@ -471,20 +493,24 @@ s32 PS4_SYSV_ABI sceGnmDrawIndex(u32* cmdbuf, u32 size, u32 index_count, uintptr
         WriteTrailingNop<3>(cmdbuf + 6);
         return ORBIS_OK;
     }
+    ReportRejectedDraw("sceGnmDrawIndex", size, flags, __builtin_return_address(0));
     return -1;
 }
 
 s32 PS4_SYSV_ABI sceGnmDrawIndexAuto(u32* cmdbuf, u32 size, u32 index_count, u32 flags) {
     LOG_TRACE(Lib_GnmDriver, "called");
 
-    if (cmdbuf && (size == 7) &&
-        (flags & 0x1ffffffe) == 0) { // no predication will be set in the packet
+    if ((flags & 0x1ffffffe) != 0) {
+        ReportRejectedDraw("sceGnmDrawIndexAuto flags", size, flags, __builtin_return_address(0));
+    }
+    if (cmdbuf && (size == 7)) {
         cmdbuf = WritePacket<PM4ItOpcode::DrawIndexAuto>(
             cmdbuf, PM4ShaderType::ShaderGraphics, index_count,
             sceKernelIsNeoMode() ? flags & 0xe0000000u | 2u : 2u);
         WriteTrailingNop<3>(cmdbuf);
         return ORBIS_OK;
     }
+    ReportRejectedDraw("sceGnmDrawIndexAuto", size, flags, __builtin_return_address(0));
     return -1;
 }
 
@@ -600,6 +626,7 @@ s32 PS4_SYSV_ABI sceGnmDrawIndexOffset(u32* cmdbuf, u32 size, u32 index_offset, 
         WriteTrailingNop<3>(cmdbuf);
         return ORBIS_OK;
     }
+    ReportRejectedDraw("sceGnmDrawIndexOffset", size, flags, __builtin_return_address(0));
     return -1;
 }
 

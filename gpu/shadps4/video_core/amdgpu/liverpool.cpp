@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <set>
+#include <cstdio>
 #include <chrono>
 #include <pthread.h>
 #ifndef _WIN32
@@ -1360,6 +1362,21 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                     LOG_WARNING(Render, "IT_COND_EXEC used a reserved command");
                 }
                 const auto skip = *cond_exec->Address() == false;
+                {
+                    // Each condition address is reported once, with whether it skipped.
+                    static std::mutex cond_mutex;
+                    static std::set<u64> cond_seen;
+                    std::scoped_lock lk{cond_mutex};
+                    const u64 at = reinterpret_cast<u64>(cond_exec->Address());
+                    if (cond_seen.size() < 64 && cond_seen.insert(at * 2 + skip).second) {
+                        std::printf("GPU: COND_EXEC at %#llx -> %s %u packets\n",
+                                    (unsigned long long)at, skip ? "skips" : "runs",
+                                    u32(cond_exec->exec_count.Value()));
+                    }
+                }
+                if (Vulkan::FrameCapture::Active()) {
+                    Vulkan::FrameCapture::Note(skip ? "\n  cond_exec skip" : "\n  cond_exec run");
+                }
                 if (skip) {
                     dcb = NextPacket(dcb,
                                      header->type3.NumWords() + 1 + cond_exec->exec_count.Value());

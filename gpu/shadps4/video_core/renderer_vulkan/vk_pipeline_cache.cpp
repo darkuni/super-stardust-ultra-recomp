@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <set>
+#include <cstdio>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -767,6 +769,27 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
     if (!refreshed) {
         if (sel.compilation_pending) {
             ++g_gow3_pending_draws;
+        }
+        // Each kind of draw left out is reported once: its stages and why (a shader still
+        // compiling, or one that cannot be set up).
+        static std::set<u64> reported;
+        const auto& regs = liverpool->regs;
+        const auto& hashes = sel.graphics_key.stage_hashes;
+        u64 sig = regs.stage_enable.raw ^ (u64(sel.compilation_pending) << 40);
+        for (const u64 h : hashes) {
+            sig = sig * 1099511628211ull ^ h;
+        }
+        if (reported.size() < 256 && reported.insert(sig).second) {
+            std::printf("GPU: draw left out (%s), stages %#x, hashes vs %llx ps %llx gs %llx "
+                        "tes %llx tcs %llx, primitive %u\n",
+                        sel.compilation_pending ? "shader pending" : "not set up",
+                        u32(regs.stage_enable.raw),
+                        (unsigned long long)hashes[u32(Shader::SwStage::Vertex)],
+                        (unsigned long long)hashes[u32(Shader::SwStage::Fragment)],
+                        (unsigned long long)hashes[u32(Shader::SwStage::Geometry)],
+                        (unsigned long long)hashes[u32(Shader::SwStage::TessellationEval)],
+                        (unsigned long long)hashes[u32(Shader::SwStage::TessellationControl)],
+                        u32(regs.primitive_type));
         }
         return nullptr;
     }
