@@ -319,7 +319,9 @@ void FrameCapture::Buffer(u64 stage_hash, u32 slot, VAddr address, const void* d
     if (!data) {
         return;
     }
-    const u64 bytes = std::min<u64>(size, 1024) & ~u64(3);
+    // Vertex streams (stage 0xbbbbbbbb) may carry whole instance streams; others keep 1 KiB.
+    const u64 limit = (stage_hash >> 32) == 0xbbbbbbbbu ? (64u << 10) : 1024u;
+    const u64 bytes = std::min<u64>(size, limit) & ~u64(3);
     std::string out = std::format("  buffer stage {:016x} slot {} at {:#x} size {}:", stage_hash,
                                   slot, address, size);
     const auto* words = static_cast<const float*>(data);

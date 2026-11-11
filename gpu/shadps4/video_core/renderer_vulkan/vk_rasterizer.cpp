@@ -1944,7 +1944,11 @@ void Rasterizer::ResolveVertexBuffers(const GraphicsPipeline* pipeline,
         u32 slot = 0;
         for (const auto& vb : guest_buffers) {
             if (vb.base_address && vb.GetSize()) {
-                const u64 bytes = std::min<u64>(vb.GetSize(), std::max<u32>(vb.GetStride(), 4) * 3);
+                // Instanced draws: the whole per-instance stream (up to 1024 instances), so
+                // sprite batches can be compared instance by instance.
+                const u32 inst = regs.num_instances.NumInstances();
+                const u32 rows = inst > 1 ? std::min<u32>(inst, 1024) : 3;
+                const u64 bytes = std::min<u64>(vb.GetSize(), u64(std::max<u32>(vb.GetStride(), 4)) * rows);
                 FrameCapture::Buffer(0xbbbbbbbb00000000ull | vb.GetStride(), slot,
                                      vb.base_address,
                                      reinterpret_cast<const void*>(vb.base_address), bytes);
