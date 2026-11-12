@@ -677,10 +677,115 @@ static const int isa_gregs[16]={REG_RAX,REG_RCX,REG_RDX,REG_RBX,REG_RSP,REG_RBP,
                                 REG_R8,REG_R9,REG_R10,REG_R11,REG_R12,REG_R13,REG_R14,REG_R15};
 /* GOW3_COUNT_CALLS=<hex offset>,... (development, Linux): each guest function there (it must
  * begin with push rbp) traps once per call; the calls and their callers are printed every 5 s. */
-enum { COUNT_MAX = 64, COUNT_CALLERS = 4 };
+enum { COUNT_MAX = 160, COUNT_CALLERS = 4 };
 static uintptr_t count_at[COUNT_MAX];
 static uint64_t count_calls[COUNT_MAX], count_caller[COUNT_MAX][COUNT_CALLERS];
 static int count_n;
+static uint64_t count_this[COUNT_MAX];
+/* GOW3_COUNT_KEY=<hex function>,<qword index>: histogram of rdi[index] for that function. */
+enum { KEY_MAX = 512 };
+static uint64_t key_fn, key_val[KEY_MAX], key_cnt[KEY_MAX];
+static int key_idx = -1;
+static void key_note(uint64_t rdi) {
+    if (rdi < 0x1000000000ull || rdi >= 0x2000000000ull) return;
+    const uint64_t v = ((const uint64_t *)rdi)[key_idx];
+    for (int i = 0; i < KEY_MAX; ++i) {
+        uint64_t cur = __atomic_load_n(&key_val[i], __ATOMIC_RELAXED);
+        if (cur == v) { __atomic_add_fetch(&key_cnt[i], 1, __ATOMIC_RELAXED); return; }
+        if (cur == 0) {
+            uint64_t z = 0;
+            if (__atomic_compare_exchange_n(&key_val[i], &z, v, 0, __ATOMIC_RELAXED, __ATOMIC_RELAXED) || z == v) {
+                __atomic_add_fetch(&key_cnt[i], 1, __ATOMIC_RELAXED); return;
+            }
+        }
+    }
+}
+static void key_report(void) {
+    if (key_idx < 0) return;
+    for (int i = 0; i < KEY_MAX && key_val[i]; ++i) {
+        const uint64_t c = __atomic_exchange_n(&key_cnt[i], 0, __ATOMIC_RELAXED);
+        if (c) printf("Key %llx x%llu\n", (unsigned long long)key_val[i], (unsigned long long)c);
+    }
+}
+/* GOW3_COUNT_DUMP=<hex function>,<hex ptr offset>,<hex count offset>,<hex stride>: with the call
+ * counter, every 5 s dump the array that function's first `this` points to (stardust bullets). */
+static void count_obj(const unsigned char *image) {
+    /* GOW3_COUNT_OBJ=<hex function>,<hex start>,<hex length>: qwords of that function's first
+     * `this`, and the first 12 qwords each non-null one points to. */
+    const char *spec = getenv("GOW3_COUNT_OBJ");
+    unsigned long long fn = 0, st = 0, len = 0;
+    if (!spec || sscanf(spec, "%llx,%llx,%llx", &fn, &st, &len) != 3) return;
+    for (int i = 0; i < count_n; ++i) {
+        if (count_at[i] != (uintptr_t)image + fn || !count_this[i]) continue;
+        const unsigned char *obj = (const unsigned char *)count_this[i];
+        printf("Obj: this %p\n", (void *)obj);
+        for (unsigned long long o = st; o < st + len; o += 8) {
+            const uint64_t v = *(const uint64_t *)(obj + o);
+            printf("Obj +%#llx: %#llx", o, (unsigned long long)v);
+            printf("\n");
+            if (v >= 0x1000000000ull && v < 0x2000000000ull && !(v & 7) && getenv("GOW3_COUNT_DEEP")) {
+                const uint64_t *q = (const uint64_t *)v;
+                for (int k = 0; k < 64; ++k) {
+                    printf("Obj   [%#x] %llx", k * 8, (unsigned long long)q[k]);
+                    const uint64_t w = q[k];
+                    if (w >= 0x1000000000ull && w < 0x2000000000ull && !(w & 7)) {
+                        const uint64_t *r = (const uint64_t *)w;
+                        printf(" ->");
+                        for (int j = 0; j < 10; ++j) printf(" %llx", (unsigned long long)r[j]);
+                    }
+                    printf("\n");
+                }
+                const char *vec = getenv("GOW3_COUNT_VEC");
+                if (vec) {
+                    const unsigned off = (unsigned)strtoul(vec, NULL, 16);
+                    const uint64_t *b = (const uint64_t *)q[off / 8];
+                    const uint64_t *e = (const uint64_t *)q[off / 8 + 1];
+                    for (int el = 0; b && b + el < e && el < 2; ++el) {
+                        const uint64_t *it = (const uint64_t *)b[el];
+                        printf("Obj  element %d %p\n", el, (void *)it);
+                        for (int k = 0; it && k < 96; ++k) {
+                            const uint64_t w = it[k];
+                            float f0, f1; uint32_t lo = (uint32_t)w, hi = (uint32_t)(w >> 32);
+                            memcpy(&f0, &lo, 4); memcpy(&f1, &hi, 4);
+                            printf("Obj    {%#x} %llx (%g %g)", k * 8, (unsigned long long)w, f0, f1);
+                            if (w >= 0x1000000000ull && w < 0x2000000000ull && !(w & 7)) {
+                                const uint64_t *r = (const uint64_t *)w;
+                                printf(" ->");
+                                for (int j = 0; j < 8; ++j) printf(" %llx", (unsigned long long)r[j]);
+                            }
+                            printf("\n");
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+static void count_dump(const unsigned char *image) {
+    count_obj(image);
+    const char *spec = getenv("GOW3_COUNT_DUMP");
+    if (!spec) return;
+    unsigned long long fn = 0, po = 0, co = 0, st = 0;
+    if (sscanf(spec, "%llx,%llx,%llx,%llx", &fn, &po, &co, &st) != 4 || !st) return;
+    for (int i = 0; i < count_n; ++i) {
+        if (count_at[i] != (uintptr_t)image + fn || !count_this[i]) continue;
+        const unsigned char *obj = (const unsigned char *)count_this[i];
+        const unsigned char *arr = *(const unsigned char *const *)(obj + po);
+        int n = *(const int *)(obj + co);
+        printf("Dump: this %p array %p count %d\n", (void *)obj, (void *)arr, n);
+        for (int k = 0; arr && k < n && k < 24; ++k) {
+            const uint32_t *w = (const uint32_t *)(arr + (size_t)k * st);
+            printf("Dump %2d:", k);
+            for (unsigned j = 0; j < st / 4; ++j) {
+                float f; memcpy(&f, &w[j], 4);
+                if (w[j] == 0) printf(" 0");
+                else if ((w[j] & 0x7f800000u) && (w[j] & 0x7f800000u) != 0x7f800000u && f > -1e7f && f < 1e7f) printf(" %g", f);
+                else printf(" #%x", w[j]);
+            }
+            printf("\n");
+        }
+    }
+}
 static void *count_report(void *arg) {
     const unsigned char *image = arg;
     for (;;) {
@@ -693,6 +798,8 @@ static void *count_report(void *arg) {
                 printf(" %#llx", (unsigned long long)(count_caller[i][k] - (uintptr_t)image));
             printf("\n");
         }
+        count_dump(image);
+        key_report();
         fflush(stdout);
     }
     return NULL;
@@ -700,6 +807,9 @@ static void *count_report(void *arg) {
 static void count_calls_setup(unsigned char *image) {
     const char *list = getenv("GOW3_COUNT_CALLS");
     if (!list) return;
+    const char *key = getenv("GOW3_COUNT_KEY");
+    unsigned long long kf = 0; int ki = 0;
+    if (key && sscanf(key, "%llx,%d", &kf, &ki) == 2) { key_fn = (uint64_t)(uintptr_t)image + kf; key_idx = ki; }
     for (const char *c = list; *c && count_n < COUNT_MAX;) {
         char *end;
         uint64_t at = strtoull(c, &end, 16);
@@ -722,6 +832,28 @@ static void fault(int sig, siginfo_t *info, void *context) {
         for (int i = 0; i < count_n; ++i) {
             if (count_at[i] != at) continue;
             __atomic_add_fetch(&count_calls[i], 1, __ATOMIC_RELAXED);
+            if (!count_this[i]) count_this[i] = (uint64_t)g[REG_RDI];
+            if (key_idx >= 0 && at == key_fn) key_note((uint64_t)g[REG_RDI]);
+            static int args_left = -1;
+            if (args_left < 0) args_left = getenv("GOW3_COUNT_ARGS") ? atoi(getenv("GOW3_COUNT_ARGS")) : 0;
+            if (args_left > 0) {
+                --args_left;
+                const uint64_t rsi = (uint64_t)g[REG_RSI];
+                fprintf(stderr, "Args %#lx: rdi %#llx rsi %#llx rdx %#llx rcx %#llx", (unsigned long)(at - (uintptr_t)image),
+                        (unsigned long long)g[REG_RDI], (unsigned long long)rsi,
+                        (unsigned long long)g[REG_RDX], (unsigned long long)g[REG_RCX]);
+                const uint64_t rdi = (uint64_t)g[REG_RDI];
+                if (getenv("GOW3_COUNT_ARGS_RDI") && rdi >= 0x1000000000ull && rdi < 0x2000000000ull) {
+                    const uint64_t *w = (const uint64_t *)rdi;
+                    fprintf(stderr, " [rdi]");
+                    for (int k = 0; k < 24; ++k) fprintf(stderr, " %llx", (unsigned long long)w[k]);
+                } else if (rsi >= 0x1000000000ull && rsi < 0x2000000000ull) {
+                    const uint32_t *w = (const uint32_t *)rsi;
+                    fprintf(stderr, " [rsi]");
+                    for (int k = 0; k < 16; ++k) fprintf(stderr, " %x", w[k]);
+                }
+                fprintf(stderr, "\n");
+            }
             const uint64_t caller = *(uint64_t *)g[REG_RSP];
             for (int k = 0; k < COUNT_CALLERS; ++k) {
                 if (count_caller[i][k] == caller) break;
