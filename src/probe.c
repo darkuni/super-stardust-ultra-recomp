@@ -108,6 +108,22 @@ static void protect(void *p, size_t size, unsigned flags) {
     if (mprotect(p, size, mode)) fail("mprotect failed");
 #endif
 }
+/* GOW3_PATCH=<hex offset>:<hex bytes>[,...]: overwrite game code (experiments). */
+static void code_patch_setup(unsigned char *image) {
+    const char *list = getenv("GOW3_PATCH");
+    for (const char *c = list; c && *c;) {
+        char *end;
+        const unsigned long long at = strtoull(c, &end, 16);
+        if (*end != ':') break;
+        unsigned char *f = image + at;
+        protect((void *)((uintptr_t)f & ~(uintptr_t)4095), 8192, 7);
+        const char *h = end + 1;
+        int n = 0;
+        while (h[0] && h[1] && h[0] != ',') { unsigned v; sscanf(h, "%2x", &v); f[n++] = (unsigned char)v; h += 2; }
+        printf("Patch: %d bytes at %#llx\n", n, at);
+        c = *h == ',' ? h + 1 : h;
+    }
+}
 static ABI __attribute__((noreturn)) void unresolved(uint32_t id, uintptr_t argument) {
     if (id >= import_count) fail("bad import trap index");
     printf("STOP: first unsupported PS4 import: %s (index %u)\n", names[id], id);
@@ -688,7 +704,7 @@ static uint64_t key_fn, key_val[KEY_MAX], key_cnt[KEY_MAX];
 static int key_idx = -1;
 static void key_note(uint64_t rdi) {
     if (rdi < 0x1000000000ull || rdi >= 0x2000000000ull) return;
-    const uint64_t v = ((const uint64_t *)rdi)[key_idx];
+    const uint64_t v = key_idx == 99 ? rdi : ((const uint64_t *)rdi)[key_idx];
     for (int i = 0; i < KEY_MAX; ++i) {
         uint64_t cur = __atomic_load_n(&key_val[i], __ATOMIC_RELAXED);
         if (cur == v) { __atomic_add_fetch(&key_cnt[i], 1, __ATOMIC_RELAXED); return; }
@@ -1821,6 +1837,7 @@ int main(int argc, char **argv) {
             if (result) fail("module initializer failed");
         }
     }
+    code_patch_setup(image);
 #ifndef _WIN32
     count_calls_setup(image);
     /* GOW3_DEBUG_HOOK=<hex offset> (development): the guest function there is replaced by one

@@ -562,6 +562,15 @@ int bootstrap(int *argc, char ***argv) {
         char line[256];
         static char value[16];
         while (ini && fgets(line, sizeof(line), ini)) {
+            /* rc_test=1|2 (Super Stardust Ultra test builds): Rock Crusher shots use the
+             * game's other Rock Crusher effect (1) or the Ice Splitter's effect (2). */
+            if (!strncmp(line, "rc_test=1", 9)) {
+                set_env("GOW3_PATCH", "273b8e:9090", 1);
+                printf("Test: Rock Crusher shots use the alternate Rock Crusher effect\n");
+            } else if (!strncmp(line, "rc_test=2", 9)) {
+                set_env("GOW3_PATCH", "305454:e802", 1);
+                printf("Test: Rock Crusher shots use the Ice Splitter effect\n");
+            }
             if (!strncmp(line, "stereo_eye=", 11)) {
                 size_t n = strcspn(line + 11, "\r\n ");
                 if (n >= sizeof(value)) n = sizeof(value) - 1;
