@@ -739,6 +739,20 @@ static void count_obj(const unsigned char *image) {
             const uint64_t v = *(const uint64_t *)(obj + o);
             printf("Obj +%#llx: %#llx", o, (unsigned long long)v);
             printf("\n");
+            if (v >= 0x1000000000ull && v < 0x2000000000ull && !(v & 7) && getenv("GOW3_COUNT_EMITTERS")) {
+                /* Particle_Effect_Impl: +0xc8 -> emitter list (begin +8, end +0x10, 0x1c0 each). */
+                const uint64_t *eff = (const uint64_t *)v;
+                const uint64_t *lst = (const uint64_t *)eff[0xc8 / 8];
+                if (lst) {
+                    const unsigned char *b = (const unsigned char *)lst[1], *e = (const unsigned char *)lst[2];
+                    for (int k = 0; b && b + (size_t)k * 0x1c0 < e && k < 8; ++k) {
+                        const uint32_t *w = (const uint32_t *)(b + (size_t)k * 0x1c0);
+                        printf("Emitter +%#llx #%d:", o, k);
+                        for (int j = 0; j < 112; ++j) printf(" %x", w[j]);
+                        printf("\n");
+                    }
+                }
+            }
             if (v >= 0x1000000000ull && v < 0x2000000000ull && !(v & 7) && getenv("GOW3_COUNT_DEEP")) {
                 const uint64_t *q = (const uint64_t *)v;
                 for (int k = 0; k < 64; ++k) {

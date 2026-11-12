@@ -1274,6 +1274,22 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     if (FrameCapture::Active()) {
         const auto* ps = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
         FrameCapture::Draw(vs_info.pgm_hash, ps ? ps->pgm_hash : 0, num_indices, num_instances);
+        {
+            // Primitive type and point sprite state (PA_SU_POINT_SIZE/MINMAX, SPI_PS_INPUT_CNTL
+            // PT_SPRITE_TEX bits).
+            u32 sprite_mask = 0;
+            for (u32 i = 0; i < 32; ++i) {
+                if ((regs.reg_array[0xA191 + i] >> 17) & 1) sprite_mask |= 1u << i;
+            }
+            char note[256];
+            std::snprintf(note, sizeof(note),
+                          "\n  prim %u vs_out_cntl %#x point_size %#x minmax %#x sprite_tex %#x interp %#x in0 %#x in1 %#x in2 %#x",
+                          u32(regs.primitive_type), regs.reg_array[0xA207],
+                          regs.reg_array[0xA280], regs.reg_array[0xA281], sprite_mask,
+                          regs.reg_array[0xA1B5], regs.reg_array[0xA191], regs.reg_array[0xA192],
+                          regs.reg_array[0xA193]);
+            FrameCapture::Note(note);
+        }
         if (const auto& bc = regs.blend_control[0]; bc.enable && regs.color_buffers[0]) {
             char note[128];
             std::snprintf(note, sizeof(note), "\n  blend ps %08x idx %u: src %u dst %u func %u z %u%u",

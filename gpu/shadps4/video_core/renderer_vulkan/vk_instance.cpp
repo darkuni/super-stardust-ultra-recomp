@@ -562,6 +562,9 @@ bool Instance::CreateDevice() {
                 .fillModeNonSolid = features.fillModeNonSolid,
                 .depthBounds = features.depthBounds,
                 .wideLines = features.wideLines,
+                // stardust: point lists whose vertex shader exports a point size (Super
+                // Stardust Ultra's Rock Crusher shots) are drawn 1 pixel wide without it.
+                .largePoints = features.largePoints,
                 .multiViewport = features.multiViewport,
                 .samplerAnisotropy = features.samplerAnisotropy,
                 .vertexPipelineStoresAndAtomics = features.vertexPipelineStoresAndAtomics,
@@ -939,6 +942,8 @@ void Instance::CollectDeviceParameters() {
     // gow3: in the log of every start, for crash reports from inside a driver.
     std::printf("GPU driver: %s (%s), Vulkan %s\n", driver_name.c_str(), driver.driverInfo.data(),
                 api_version.c_str());
+    std::printf("GPU: large points %s (sizes %.1f-%.1f)\n", features.largePoints ? "on" : "unsupported",
+                properties.limits.pointSizeRange[0], properties.limits.pointSizeRange[1]);
 
     LOG_INFO(Render_Vulkan, "GPU_Vendor: {}", vendor_name);
     LOG_INFO(Render_Vulkan, "GPU_Model: {}", model_name);
