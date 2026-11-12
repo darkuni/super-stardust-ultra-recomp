@@ -233,6 +233,9 @@ const Shader::RuntimeInfo& PipelineCache::BuildRuntimeInfo(PipelineSelection& se
                 : 1;
         info.hw.fs.z_export_format = regs.z_export_format;
         info.hw.fs.motion_vectors = sel.motion;
+        info.hw.fs.point_sprite_coords =
+            regs.primitive_type == AmdGpu::PrimitiveType::PointList &&
+            !regs.stage_enable.IsStageEnabled(static_cast<u32>(HwStage::Geometry));
         u8 stencil_ref_export_enable = regs.depth_shader_control.stencil_op_val_export_enable |
                                        regs.depth_shader_control.stencil_test_val_export_enable;
         info.hw.fs.mrtz_mask = regs.depth_shader_control.z_export_enable |

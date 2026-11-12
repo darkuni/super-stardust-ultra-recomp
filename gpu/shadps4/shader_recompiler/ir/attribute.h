@@ -95,6 +95,7 @@ enum class Attribute : u64 {
     BaseVertex = 98,
     BaseInstance = 99,
     IsHelperInvocation = 100,
+    PointCoord = 101, // stardust: point sprite coordinates (GCN barycentrics of a point)
     Max,
 };
 
